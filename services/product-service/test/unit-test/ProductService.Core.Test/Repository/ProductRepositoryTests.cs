@@ -60,7 +60,7 @@ public class ProductRepositoryTests
         await using var db = CreateDbContext(Guid.NewGuid().ToString("N"));
         var repo = new ProductRepository(db, NullLogger<ProductRepository>.Instance);
 
-        var product = new Product { Id = Guid.NewGuid(), Name = "SSD", Price = 100, Stock = 2 };
+        var product = new Product { Id = Guid.NewGuid(), Name = "SSD", Slug = "ssd", Price = 100, Stock = 2 };
         db.Products.Add(product);
         await db.SaveChangesAsync();
 
@@ -79,7 +79,7 @@ public class ProductRepositoryTests
         await using var db = CreateDbContext(Guid.NewGuid().ToString("N"));
         var repo = new ProductRepository(db, NullLogger<ProductRepository>.Instance);
 
-        var product = new Product { Id = Guid.NewGuid(), Name = "GPU", Price = 500, Stock = 10 };
+        var product = new Product { Id = Guid.NewGuid(), Name = "GPU", Slug = "gpu", Price = 500, Stock = 10 };
         db.Products.Add(product);
         await db.SaveChangesAsync();
 
@@ -128,7 +128,7 @@ public class ProductRepositoryTests
         await using var db = CreateDbContext(Guid.NewGuid().ToString("N"));
         var repo = new ProductRepository(db, NullLogger<ProductRepository>.Instance);
 
-        var product = new Product { Id = Guid.NewGuid(), Name = "RAM", Price = 40, Stock = 1 };
+        var product = new Product { Id = Guid.NewGuid(), Name = "RAM", Slug = "ram", Price = 40, Stock = 1 };
         db.Products.Add(product);
         await db.SaveChangesAsync();
 

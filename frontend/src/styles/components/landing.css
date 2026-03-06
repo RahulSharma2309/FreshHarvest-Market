@@ -305,9 +305,7 @@
 @media (max-width: 920px) {
   .landing-hero {
     grid-template-columns: 1fr;
-  }
-
-  .landing-categories .landing-category-card,
+  }  .landing-categories .landing-category-card,
   .landing-microcards .landing-microcard {
     grid-column: span 12;
   }

@@ -27,6 +27,7 @@ public class ProductsControllerIntegrationTests
         var createDto = new CreateProductRequest
         {
             Name = "Integration Test Product",
+            Slug = "integration-test-product",
             Description = "A product created during integration testing",
             Price = 99,
             Stock = 10,
@@ -50,6 +51,7 @@ public class ProductsControllerIntegrationTests
         var createDto = new CreateProductRequest
         {
             Name = "GetById Test Product",
+            Slug = "getbyid-test-product",
             Price = 50,
             Stock = 5,
         };
@@ -74,6 +76,7 @@ public class ProductsControllerIntegrationTests
         var createDto = new CreateProductRequest
         {
             Name = "Stock Operation Product",
+            Slug = "stock-operation-product",
             Price = 10,
             Stock = 100,
         };

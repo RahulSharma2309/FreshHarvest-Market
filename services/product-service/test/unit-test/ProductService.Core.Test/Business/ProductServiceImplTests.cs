@@ -24,6 +24,7 @@ public class ProductServiceImplTests
         var request = new CreateProductRequest
         {
             Name = "   ",
+            Slug = "invalid-product",
             Price = 10,
             Stock = 5,
         };
@@ -31,6 +32,7 @@ public class ProductServiceImplTests
         mapper.Setup(m => m.ToEntity(It.IsAny<CreateProductRequest>())).Returns(new Product
         {
             Name = request.Name,
+            Slug = request.Slug,
             Price = request.Price,
             Stock = request.Stock,
         });
@@ -56,6 +58,7 @@ public class ProductServiceImplTests
         var request = new CreateProductRequest
         {
             Name = "Keyboard",
+            Slug = "keyboard",
             Price = -1,
             Stock = 5,
         };
@@ -63,6 +66,7 @@ public class ProductServiceImplTests
         mapper.Setup(m => m.ToEntity(It.IsAny<CreateProductRequest>())).Returns(new Product
         {
             Name = request.Name,
+            Slug = request.Slug,
             Price = request.Price,
             Stock = request.Stock,
         });
@@ -88,6 +92,7 @@ public class ProductServiceImplTests
         var request = new CreateProductRequest
         {
             Name = "Mouse",
+            Slug = "mouse",
             Price = 10,
             Stock = -1,
         };
@@ -95,6 +100,7 @@ public class ProductServiceImplTests
         mapper.Setup(m => m.ToEntity(It.IsAny<CreateProductRequest>())).Returns(new Product
         {
             Name = request.Name,
+            Slug = request.Slug,
             Price = request.Price,
             Stock = request.Stock,
         });
@@ -122,6 +128,7 @@ public class ProductServiceImplTests
         var request = new CreateProductRequest
         {
             Name = "Headphones",
+            Slug = "headphones",
             Price = 50,
             Stock = 2,
         };
@@ -129,6 +136,7 @@ public class ProductServiceImplTests
         mapper.Setup(m => m.ToEntity(It.IsAny<CreateProductRequest>())).Returns(new Product
         {
             Name = request.Name,
+            Slug = request.Slug,
             Price = request.Price,
             Stock = request.Stock,
         });
@@ -137,6 +145,7 @@ public class ProductServiceImplTests
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
+            Slug = request.Slug,
             Description = null,
             Price = request.Price,
             Stock = request.Stock,
@@ -146,10 +155,10 @@ public class ProductServiceImplTests
             Unit = null,
             ImageUrl = null,
             IsActive = true,
+            IsOrganic = false,
+            IsFeatured = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = null,
-            Certification = null,
-            Metadata = null,
         });
 
         // Act
