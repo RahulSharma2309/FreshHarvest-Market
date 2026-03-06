@@ -23,6 +23,7 @@ on:
 env:
   DOTNET_VERSION: "10.0.x"
   NODE_VERSION: "20"
+  SONAR_PROJECT_KEY: "RahulSharma2309_FreshHarvest-Market"
 
 jobs:
   # ============================================================================
@@ -57,6 +58,53 @@ jobs:
           else
             echo "only_k8s=false" >> $GITHUB_OUTPUT
           fi
+
+  # ============================================================================
+  # PHASE 0.5: Preflight consistency checks
+  # ============================================================================
+  preflight-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET (validate SDK availability)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Validate runtime and branding consistency
+        run: |
+          set -euo pipefail
+
+          # 1) Ensure CI DOTNET_VERSION major matches global.json SDK major
+          CI_MAJOR="${DOTNET_VERSION%%.*}"
+          GLOBAL_SDK_VERSION=$(python -c "import json; print(json.load(open('global.json'))['sdk']['version'])")
+          GLOBAL_MAJOR="${GLOBAL_SDK_VERSION%%.*}"
+          if [ "$CI_MAJOR" != "$GLOBAL_MAJOR" ]; then
+            echo "❌ .NET version mismatch: CI=${DOTNET_VERSION}, global.json=${GLOBAL_SDK_VERSION}"
+            exit 1
+          fi
+          echo "✅ .NET version aligned: CI=${DOTNET_VERSION}, global.json=${GLOBAL_SDK_VERSION}"
+
+          # 2) Ensure Sonar project key stays in sync
+          SONAR_KEY_FILE=$(grep -E '^sonar\.projectKey=' sonar-project.properties | cut -d= -f2-)
+          if [ "${SONAR_KEY_FILE}" != "${SONAR_PROJECT_KEY}" ]; then
+            echo "❌ Sonar project key mismatch: workflow=${SONAR_PROJECT_KEY}, file=${SONAR_KEY_FILE}"
+            exit 1
+          fi
+          echo "✅ Sonar project key aligned: ${SONAR_PROJECT_KEY}"
+
+          # 3) Ensure deployment images use freshharvest-market naming
+          if grep -R -E 'image:\s+ghcr\.io/.*/electronic[-]?paradise' infra/k8s/staging/deployments infra/k8s/prod/deployments; then
+            echo "❌ Found legacy image naming in deployment manifests"
+            exit 1
+          fi
+          if ! grep -R -E 'image:\s+ghcr\.io/.*/freshharvest-market-' infra/k8s/staging/deployments infra/k8s/prod/deployments >/dev/null; then
+            echo "❌ No freshharvest-market image references found in deployment manifests"
+            exit 1
+          fi
+          echo "✅ K8s deployment image naming uses freshharvest-market-*"
 
   # ============================================================================
   # PHASE 1: Calculate Version (runs once, shares with all)
@@ -130,7 +178,7 @@ jobs:
   # PHASE 2: Build & Test .NET Services (PARALLEL via Matrix)
   # ============================================================================
   dotnet-services:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -215,7 +263,7 @@ jobs:
   # PHASE 3: Frontend Build & Test
   # ============================================================================
   frontend-build:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -258,7 +306,7 @@ jobs:
   # PHASE 4: Dependency Scanning
   # ============================================================================
   dependency-scanning:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -342,7 +390,7 @@ jobs:
   # PHASE 5: Frontend Dependency Scanning
   # ============================================================================
   frontend-dependency-scanning:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -467,7 +515,7 @@ jobs:
   # PHASE 7: SonarCloud Analysis
   # ============================================================================
   sonarcloud:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -489,7 +537,7 @@ jobs:
         with:
           projectBaseDir: .
           args: >
-            -Dsonar.projectKey=RahulSharma2309_FreshHarvest-Market
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
             -Dsonar.organization=rahulsharma2309
             -Dsonar.cs.opencover.reportsPaths=**/coverage.opencover.xml
 
@@ -500,6 +548,7 @@ jobs:
     needs:
       [
         detect-changes,
+        preflight-consistency,
         calculate-version,
         dotnet-services,
         frontend-build,
