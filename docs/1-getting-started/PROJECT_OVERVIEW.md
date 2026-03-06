@@ -62,7 +62,7 @@
 - ✅ Comprehensive Documentation
 
 **Tech Stack (Current):**
-- Backend: .NET 8, ASP.NET Core, Entity Framework Core
+- Backend: .NET 10, ASP.NET Core, Entity Framework Core
 - Frontend: React 18, React Router, Axios
 - Database: SQL Server 2019 (5 separate databases)
 - API Gateway: YARP
