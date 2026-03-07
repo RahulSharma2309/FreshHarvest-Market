@@ -1,7 +1,8 @@
-# 🛠️ E-Commerce Application - Complete Tech Stack
+# 🛠️ FreshHarvest Market - Complete Tech Stack
 
-> **Last Updated:** January 11, 2026  
-> **Status:** MVP Complete + Testing + CI/CD (76% complete)
+> **Last Updated:** January 2026  
+> **Status:** MVP Complete + Testing + CI/CD (76% complete)  
+> **Brand:** FreshHarvest Market - Organic Food E-Commerce Platform
 
 ---
 
@@ -42,11 +43,11 @@
 
 | Technology                | Version | Purpose                     | License | Status         |
 | ------------------------- | ------- | --------------------------- | ------- | -------------- |
-| **.NET**                  | 8.0     | Microservices framework     | MIT     | ✅ Implemented |
-| **ASP.NET Core**          | 8.0     | Web API framework           | MIT     | ✅ Implemented |
-| **Entity Framework Core** | 8.0     | ORM for database access     | MIT     | ✅ Implemented |
+| **.NET**                  | 10.0    | Microservices framework     | MIT     | ✅ Implemented |
+| **ASP.NET Core**          | 10.0    | Web API framework           | MIT     | ✅ Implemented |
+| **Entity Framework Core** | 10.0    | ORM for database access     | MIT     | ✅ Implemented |
 | **BCrypt.NET**            | 0.1.0   | Password hashing            | MIT     | ✅ Implemented |
-| **JWT Bearer**            | 8.0     | Token authentication        | MIT     | ✅ Implemented |
+| **JWT Bearer**            | 10.0    | Token authentication        | MIT     | ✅ Implemented |
 | **Swashbuckle**           | 6.5.0   | API documentation (Swagger) | MIT     | ✅ Implemented |
 
 **Architecture:**
@@ -64,7 +65,7 @@
 | Technology       | Version | Purpose           | License | Status         |
 | ---------------- | ------- | ----------------- | ------- | -------------- |
 | **YARP**         | 2.1.0   | Reverse proxy     | MIT     | ✅ Implemented |
-| **ASP.NET Core** | 8.0     | Gateway framework | MIT     | ✅ Implemented |
+| **ASP.NET Core** | 10.0    | Gateway framework | MIT     | ✅ Implemented |
 
 **Features:**
 
@@ -81,7 +82,7 @@
 | Technology                | Version | Purpose             | License                 | Status         |
 | ------------------------- | ------- | ------------------- | ----------------------- | -------------- |
 | **SQL Server**            | 2019    | Relational database | Commercial/Free Express | ✅ Implemented |
-| **Entity Framework Core** | 8.0     | ORM                 | MIT                     | ✅ Implemented |
+| **Entity Framework Core** | 10.0    | ORM                 | MIT                     | ✅ Implemented |
 
 **Database Strategy:**
 
@@ -92,11 +93,11 @@
 
 **Databases:**
 
-- ✅ `authdb` - Authentication service
-- ✅ `userdb` - User profiles and wallet
-- ✅ `productdb` - Product catalog
-- ✅ `orderdb` - Orders and order items
-- ✅ `paymentdb` - Payment transactions
+- ✅ `EP_Local_AuthDb` - Authentication service
+- ✅ `EP_Local_UserDb` - User profiles and wallet (INR ₹)
+- ✅ `EP_Local_ProductDb` - Organic product catalog (with certifications)
+- ✅ `EP_Local_OrderDb` - Orders and order items
+- ✅ `EP_Local_PaymentDb` - Payment transactions
 
 ---
 
@@ -132,7 +133,7 @@
 | **Coverlet**              | 6.0.x   | Code coverage          | MIT     | ✅ Implemented |
 | **React Testing Library** | 14.x    | Component testing      | MIT     | ✅ Implemented |
 | **Jest**                  | 27.x    | JavaScript testing     | MIT     | ✅ Implemented |
-| **WebApplicationFactory** | 8.0     | Integration testing    | MIT     | ✅ Implemented |
+| **WebApplicationFactory** | 10.0    | Integration testing    | MIT     | ✅ Implemented |
 
 **Test Coverage:**
 
@@ -456,7 +457,7 @@
 
 ## 🎯 Technology Decisions & Rationale
 
-### Why .NET 8?
+### Why .NET 10?
 
 ✅ **Pros:**
 
@@ -732,7 +733,7 @@ By completing this tech stack implementation, you'll learn:
 
 | Technology     | Maturity   | Learning Curve | Job Market | Free Option |
 | -------------- | ---------- | -------------- | ---------- | ----------- |
-| .NET 8         | ⭐⭐⭐⭐⭐ | Medium         | ⭐⭐⭐⭐⭐ | ✅ Yes      |
+| .NET 10        | ⭐⭐⭐⭐⭐ | Medium         | ⭐⭐⭐⭐⭐ | ✅ Yes      |
 | React 18       | ⭐⭐⭐⭐⭐ | Medium         | ⭐⭐⭐⭐⭐ | ✅ Yes      |
 | Docker         | ⭐⭐⭐⭐⭐ | Low-Medium     | ⭐⭐⭐⭐⭐ | ✅ Yes      |
 | Kubernetes     | ⭐⭐⭐⭐⭐ | High           | ⭐⭐⭐⭐⭐ | ✅ Yes      |
@@ -746,8 +747,9 @@ By completing this tech stack implementation, you'll learn:
 
 ---
 
-**Your tech stack is designed to maximize learning while minimizing costs, using industry-standard, in-demand technologies!** 🚀
+**FreshHarvest Market's tech stack is designed to maximize learning while minimizing costs, using industry-standard, in-demand technologies!** 🌱🚀
 
 **Total Investment:** $0 - $50/month depending on cloud choice  
 **Job Market Value:** Very High (all in-demand technologies)  
-**Learning Time:** 7-10 months for complete mastery
+**Learning Time:** 7-10 months for complete mastery  
+**Domain:** Organic Food E-Commerce with Certification Tracking

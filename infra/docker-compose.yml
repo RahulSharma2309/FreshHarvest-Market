@@ -9,11 +9,8 @@ services:
     volumes:
       - mssqldata:/var/opt/mssql
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          '/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "Your_password123" -Q "select 1" >/dev/null 2>&1',
-        ]
+      # SQL client tooling isn't guaranteed in the base image; use TCP probe instead.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/1433' >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12

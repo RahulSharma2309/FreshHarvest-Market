@@ -21,8 +21,9 @@ on:
           - 'false'
 
 env:
-  DOTNET_VERSION: "8.0.x"
+  DOTNET_VERSION: "10.0.x"
   NODE_VERSION: "20"
+  SONAR_PROJECT_KEY: "RahulSharma2309_FreshHarvest-Market"
 
 jobs:
   # ============================================================================
@@ -57,6 +58,53 @@ jobs:
           else
             echo "only_k8s=false" >> $GITHUB_OUTPUT
           fi
+
+  # ============================================================================
+  # PHASE 0.5: Preflight consistency checks
+  # ============================================================================
+  preflight-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET (validate SDK availability)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Validate runtime and branding consistency
+        run: |
+          set -euo pipefail
+
+          # 1) Ensure CI DOTNET_VERSION major matches global.json SDK major
+          CI_MAJOR="${DOTNET_VERSION%%.*}"
+          GLOBAL_SDK_VERSION=$(python -c "import json; print(json.load(open('global.json'))['sdk']['version'])")
+          GLOBAL_MAJOR="${GLOBAL_SDK_VERSION%%.*}"
+          if [ "$CI_MAJOR" != "$GLOBAL_MAJOR" ]; then
+            echo "❌ .NET version mismatch: CI=${DOTNET_VERSION}, global.json=${GLOBAL_SDK_VERSION}"
+            exit 1
+          fi
+          echo "✅ .NET version aligned: CI=${DOTNET_VERSION}, global.json=${GLOBAL_SDK_VERSION}"
+
+          # 2) Ensure Sonar project key stays in sync
+          SONAR_KEY_FILE=$(grep -E '^sonar\.projectKey=' sonar-project.properties | cut -d= -f2-)
+          if [ "${SONAR_KEY_FILE}" != "${SONAR_PROJECT_KEY}" ]; then
+            echo "❌ Sonar project key mismatch: workflow=${SONAR_PROJECT_KEY}, file=${SONAR_KEY_FILE}"
+            exit 1
+          fi
+          echo "✅ Sonar project key aligned: ${SONAR_PROJECT_KEY}"
+
+          # 3) Ensure deployment images use freshharvest-market naming
+          if grep -R -E 'image:\s+ghcr\.io/.*/electronic[-]?paradise' infra/k8s/staging/deployments infra/k8s/prod/deployments; then
+            echo "❌ Found legacy image naming in deployment manifests"
+            exit 1
+          fi
+          if ! grep -R -E 'image:\s+ghcr\.io/.*/freshharvest-market-' infra/k8s/staging/deployments infra/k8s/prod/deployments >/dev/null; then
+            echo "❌ No freshharvest-market image references found in deployment manifests"
+            exit 1
+          fi
+          echo "✅ K8s deployment image naming uses freshharvest-market-*"
 
   # ============================================================================
   # PHASE 1: Calculate Version (runs once, shares with all)
@@ -130,7 +178,7 @@ jobs:
   # PHASE 2: Build & Test .NET Services (PARALLEL via Matrix)
   # ============================================================================
   dotnet-services:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -215,7 +263,7 @@ jobs:
   # PHASE 3: Frontend Build & Test
   # ============================================================================
   frontend-build:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -258,7 +306,7 @@ jobs:
   # PHASE 4: Dependency Scanning
   # ============================================================================
   dependency-scanning:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -342,7 +390,7 @@ jobs:
   # PHASE 5: Frontend Dependency Scanning
   # ============================================================================
   frontend-dependency-scanning:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -419,13 +467,13 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - { name: "auth", image: "electronic-paradise-auth" }
-          - { name: "user", image: "electronic-paradise-user" }
-          - { name: "product", image: "electronic-paradise-product" }
-          - { name: "order", image: "electronic-paradise-order" }
-          - { name: "payment", image: "electronic-paradise-payment" }
-          - { name: "gateway", image: "electronic-paradise-gateway" }
-          - { name: "frontend", image: "electronic-paradise-frontend" }
+          - { name: "auth", image: "freshharvest-market-auth" }
+          - { name: "user", image: "freshharvest-market-user" }
+          - { name: "product", image: "freshharvest-market-product" }
+          - { name: "order", image: "freshharvest-market-order" }
+          - { name: "payment", image: "freshharvest-market-payment" }
+          - { name: "gateway", image: "freshharvest-market-gateway" }
+          - { name: "frontend", image: "freshharvest-market-frontend" }
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -467,7 +515,7 @@ jobs:
   # PHASE 7: SonarCloud Analysis
   # ============================================================================
   sonarcloud:
-    needs: detect-changes
+    needs: [detect-changes, preflight-consistency]
     if: needs.detect-changes.outputs.only_k8s != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -489,7 +537,7 @@ jobs:
         with:
           projectBaseDir: .
           args: >
-            -Dsonar.projectKey=RahulSharma2309_Electronic-Paradise
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
             -Dsonar.organization=rahulsharma2309
             -Dsonar.cs.opencover.reportsPaths=**/coverage.opencover.xml
 
@@ -500,6 +548,7 @@ jobs:
     needs:
       [
         detect-changes,
+        preflight-consistency,
         calculate-version,
         dotnet-services,
         frontend-build,
@@ -518,37 +567,37 @@ jobs:
         service:
           - {
               name: "auth",
-              image: "electronic-paradise-auth",
+              image: "freshharvest-market-auth",
               dockerfile: "./services/auth-service/src/Dockerfile",
             }
           - {
               name: "user",
-              image: "electronic-paradise-user",
+              image: "freshharvest-market-user",
               dockerfile: "./services/user-service/src/Dockerfile",
             }
           - {
               name: "product",
-              image: "electronic-paradise-product",
+              image: "freshharvest-market-product",
               dockerfile: "./services/product-service/src/Dockerfile",
             }
           - {
               name: "order",
-              image: "electronic-paradise-order",
+              image: "freshharvest-market-order",
               dockerfile: "./services/order-service/src/Dockerfile",
             }
           - {
               name: "payment",
-              image: "electronic-paradise-payment",
+              image: "freshharvest-market-payment",
               dockerfile: "./services/payment-service/src/Dockerfile",
             }
           - {
               name: "gateway",
-              image: "electronic-paradise-gateway",
+              image: "freshharvest-market-gateway",
               dockerfile: "./gateway/src/Dockerfile",
             }
           - {
               name: "frontend",
-              image: "electronic-paradise-frontend",
+              image: "freshharvest-market-frontend",
               dockerfile: "./frontend/Dockerfile",
             }
 
@@ -723,13 +772,13 @@ jobs:
           
           # Service name to image name mapping
           declare -A SERVICE_MAP=(
-            ["auth-service"]="electronic-paradise-auth"
-            ["user-service"]="electronic-paradise-user"
-            ["product-service"]="electronic-paradise-product"
-            ["order-service"]="electronic-paradise-order"
-            ["payment-service"]="electronic-paradise-payment"
-            ["gateway"]="electronic-paradise-gateway"
-            ["frontend"]="electronic-paradise-frontend"
+            ["auth-service"]="freshharvest-market-auth"
+            ["user-service"]="freshharvest-market-user"
+            ["product-service"]="freshharvest-market-product"
+            ["order-service"]="freshharvest-market-order"
+            ["payment-service"]="freshharvest-market-payment"
+            ["gateway"]="freshharvest-market-gateway"
+            ["frontend"]="freshharvest-market-frontend"
           )
           
           # Update each deployment file in staging environment
