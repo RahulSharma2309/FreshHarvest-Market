@@ -27,7 +27,7 @@ spec:
       serviceAccountName: auth-service-sa # Use the ServiceAccount we created
       containers:
         - name: auth-service
-          image: ghcr.io/rahulsharma2309/freshharvest-market-auth:v1.4.0
+          image: ghcr.io/rahulsharma2309/freshharvest-market-auth:v1.4.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80

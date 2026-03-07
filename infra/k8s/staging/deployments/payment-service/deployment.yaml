@@ -27,7 +27,7 @@ spec:
       serviceAccountName: payment-service-sa
       containers:
       - name: payment-service
-        image: ghcr.io/rahulsharma2309/freshharvest-market-payment:v1.4.0
+        image: ghcr.io/rahulsharma2309/freshharvest-market-payment:v1.4.1
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

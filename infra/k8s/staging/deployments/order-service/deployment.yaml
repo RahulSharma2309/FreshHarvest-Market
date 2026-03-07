@@ -27,7 +27,7 @@ spec:
       serviceAccountName: order-service-sa
       containers:
       - name: order-service
-        image: ghcr.io/rahulsharma2309/freshharvest-market-order:v1.4.0
+        image: ghcr.io/rahulsharma2309/freshharvest-market-order:v1.4.1
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
