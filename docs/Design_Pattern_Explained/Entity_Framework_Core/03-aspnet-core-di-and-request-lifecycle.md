@@ -1,148 +1,105 @@
-# 3 — ASP.NET Core DI, scopes, and the per-request `DbContext` lifecycle
+# Part 3 — Web apps: why each HTTP request gets its own `DbContext`
 
-This document explains why **`DbContext` is scoped per HTTP request** in typical web apps, how constructor injection works, and what happens when the request ends.
+## The idea in one sentence
+
+**One request = one short-lived workspace.**  
+That workspace is your `DbContext`. When the request ends, the workspace is **thrown away** so the next customer does not inherit the last customer’s sticky notes.
 
 ---
 
-## 3.1 The core rule: one `DbContext` per request
+## How this ties to Part 1 and 2
 
-For web APIs and MVC apps, the common registration is:
+- Part 1: `DbContext` is a **session** with the database, not the database itself.
+- Part 2: at startup you **manually** create a scope because there is **no request**.
+- **This part:** during normal traffic, the **framework** creates the scope **for you**.
+
+Same type (`OrderDbContext`), **different instance** every time.
+
+---
+
+## What `AddDbContext` really registers
+
+Typical line:
 
 ```csharp
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 ```
 
-`AddDbContext` registers `AppDbContext` as **scoped** by default.
+**Plain meaning:** “Whenever someone asks for `AppDbContext` **inside a scope**, build one with these options. **Dispose** it when the scope ends.”
 
-**Meaning:**
-
-| Request | New scope? | New `DbContext`? |
-|---------|------------|------------------|
-| Request 1 | Yes | Instance #1 — use — dispose at end |
-| Request 2 | Yes | Instance #2 — use — dispose at end |
-| Request 3 | Yes | Instance #3 — use — dispose at end |
-
-**Isolation:** change tracker state, identity map, and any cached tracked entities **do not leak** between requests.
+Default lifetime is **scoped** — on purpose.
 
 ---
 
-## 3.2 Phase 1 — Request arrives (routing)
+## Walk through one API call
 
-Example:
+Imagine:
 
-`GET https://localhost:5182/api/customers/1`
+`GET /api/customers/42`
 
-1. **Routing** selects an endpoint (controller action or minimal API delegate).
-2. The host begins **request processing** for that single HTTP transaction.
+**Step A — Routing**  
+The framework picks **which method** will run (your controller action or minimal API).
 
----
+**Step B — A new “bubble” appears: the request scope**  
+Inside that bubble, DI can create **scoped** services.
 
-## 3.3 Phase 2 — ASP.NET Core creates a request scope
-
-Before your controller action runs, the framework:
-
-1. Creates a **service scope** (implements `IServiceScope`).
-2. Resolves **scoped** services from `scope.ServiceProvider`.
-
-When the framework resolves `CustomerController`:
+**Step C — Your controller is created**  
+Constructor injection:
 
 ```csharp
-public class CustomersController : ControllerBase
-{
-    private readonly AppDbContext _context;
-
-    public CustomersController(AppDbContext context, ILogger<CustomersController> logger)
-    {
-        _context = context;
-    }
-}
+public CustomersController(AppDbContext db) { _db = db; }
 ```
 
-the **same scope** provides:
+The `db` you get **belongs to this request’s bubble only**.
 
-- `AppDbContext` (scoped)
-- `ILogger<T>` (often singleton or scoped depending on registration)
+**Step D — Your action runs**  
+You write LINQ. Some lines **compose** a query; the line with `FirstOrDefaultAsync` (or similar) **executes** it (see Part 4).
 
-This is the **most important** EF Core + web integration concept: **the context is born with the request** (conceptually), not with the process.
+**Step E — Response goes out**  
+HTTP result is produced.
 
----
+**Step F — The bubble pops**  
+Scope disposal → `DbContext` disposal.
 
-## 3.4 Phase 3 — `DbContext` construction (still lazy on connections)
+**What disposal gives you:**
 
-When the DI container constructs `AppDbContext`:
-
-- It injects **`DbContextOptions<AppDbContext>`** (built at startup from `AddDbContext`).
-- The base `DbContext` constructor stores that configuration.
-
-**Still:** no guarantee a **physical** connection is open. The context holds **provider + connection string + options**.
+- Change tracker cleared (no ghost state for the next request).
+- Connections used by this context go back to the **pool** (they are not “destroyed”; they become available again).
 
 ---
 
-## 3.5 Phase 4 — Controller action runs (query composition vs execution)
+## “But why not one global `DbContext` for the whole app?”
 
-Example:
+Three practical reasons:
 
-```csharp
-[HttpGet("{id}")]
-public async Task<ActionResult<CustomerDto>> GetCustomer(int id, CancellationToken ct)
-{
-    // At method entry (conceptually):
-    // - DbContext is injected
-    // - Connection string / provider configured
-    // - Change tracker is empty (no entities loaded yet)
+1. **`DbContext` is not thread-safe.** Web servers handle **many** requests **at the same time**. One shared context would be like **one** notepad passed between **twenty** people writing at once.
 
-    var customer = await _context.Customers
-        .Include(c => c.Orders)
-        .FirstOrDefaultAsync(c => c.Id == id, ct);
+2. **The change tracker is memory with opinions.** It remembers what you loaded. If Request A loaded a `Customer` and Request B reused the same context, their **edits and assumptions** would collide.
 
-    // ↑ Until FirstOrDefaultAsync, the query is mostly *composed* (IQueryable chain)
-    // Execution triggers translation + SQL + materialization (see doc 4)
-
-    return customer is null ? NotFound() : Ok(Map(customer));
-}
-```
-
-**`Include`:** eager loading—shapes the SQL (typically joins or split queries, depending on version/settings) so related data is retrieved with the root entity.
+3. **Lifetime matches HTTP.** HTTP is **stateless** at the server level. A fresh context per request **matches** that story: each request starts clean.
 
 ---
 
-## 3.6 Phase 5 — Response
+## Connection myth-busting
 
-The action returns a result; middleware serializes the HTTP response.
+**Myth:** “The context keeps SQL open for the whole request.”
 
-**EF Core note:** by this point, for a read-only query, the context may have **tracked** loaded entities (default tracking) or not (if the query is `AsNoTracking()`).
-
----
-
-## 3.7 Phase 6 — Cleanup (end of scope)
-
-When the request pipeline completes:
-
-- The **scope is disposed**.
-- `DbContext.Dispose()` runs (unless something leaked a reference and prevented disposal—an anti-pattern).
-
-Typical effects of disposal:
-
-- **Change tracker** cleared; tracked entities released for GC.
-- Internal state reset.
-- Any **active** connection used by this context is **closed** / returned to the **connection pool** (ADO.NET pool is shared at the process level).
-
-**Important:** EF generally **does not keep connections open** for the lifetime of the context. It tends to **open when needed** for a command and **close** when done (pooling makes “close” cheap).
+**Closer to truth:** EF tends to **borrow** a connection from the pool **when a command runs**, then **return** it. You can hold a connection longer if you start a **transaction** yourself—then you are asking for a longer phone call on purpose.
 
 ---
 
-## 3.8 Contrast: manual scope at startup vs request scope
+## Startup scope vs request scope — same tool, different boss
 
-| Context | Scope created by |
-|---------|------------------|
-| Startup seeding / `EnsureCreated` | Your code: `app.Services.CreateScope()` |
-| Normal API call | ASP.NET Core: **one scope per request** |
+| Situation | Who creates the scope? |
+|-----------|-------------------------|
+| `EnsureCreated` / seeding at startup | **Your** `CreateScope()` |
+| Normal controller / minimal API | **ASP.NET Core** per request |
 
-Both patterns resolve the same scoped `DbContext` type—but **different instances** and **different lifetimes**.
+Both paths resolve the **same registered type**, but **different instances** and **different lifetimes**.
 
 ---
 
-## Next
+## What to read next
 
-[04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md) — expression trees, SQL translation, pooling, materialization.
+[04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md) — what actually happens when you “run” the LINQ.

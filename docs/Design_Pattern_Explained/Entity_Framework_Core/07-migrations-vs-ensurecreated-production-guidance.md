@@ -1,59 +1,78 @@
-# 7 — Migrations vs `EnsureCreated`, and production-oriented guidance
+# Part 7 — Two strategies for the database existing: “snapshot” vs “version history”
 
-This document contrasts **`Database.EnsureCreated()`** with **EF Core Migrations** and summarizes **production** guidance echoed in Microsoft’s EF Core documentation ([overview](https://learn.microsoft.com/en-us/ef/core/), [migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/), [applying migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/applying)).
+## Start with a picture
 
----
+You have a **C# model** (classes + configuration). The real server has **tables**.
 
-## 7.1 `EnsureCreated` — strengths and limits
+There are two common ways people try to line those up:
 
-### What it is good for
+| Strategy | Plain English |
+|----------|----------------|
+| **`EnsureCreated`** | “If there is **no** database (or we’re in toy mode), **build from today’s model**.” |
+| **Migrations** | “Keep a **numbered list of changes**; apply them in order on each environment.” |
 
-- **Local prototypes** and some **tests** where you want “create DB + tables from current model” **without** migration files.
-- Very small throwaway environments.
-
-### What it is bad at
-
-- **Schema evolution:** if the database already exists, **`EnsureCreated` does not alter tables** to match a changed model.
-- **Team workflow:** no versioned upgrade path, no downgrade, no repeatable pipeline.
-- **Production:** risky to tie schema creation to app startup without careful concurrency and permission planning.
-
-Microsoft explicitly calls out that **applying migrations at startup** can have **concurrency** and **permission** implications—prefer controlled deployment processes for production. See [Applying Migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/applying).
+They are **not** interchangeable for growing apps.
 
 ---
 
-## 7.2 Migrations — strengths
+## `EnsureCreated` — when it shines, when it hurts
 
-- **Versioned** schema changes checked into source control.
-- **Up** and **Down** (when authored) scripts.
-- **Team alignment**: everyone applies the same sequence.
-- **CI/CD**: migrate as a dedicated step (job, container init, release pipeline).
+**Feels like:** a **big red button** labeled **“make it look like my code **right now**.”**
 
----
+**Good for:**
 
-## 7.3 Practical recommendation
+- Personal spikes, demos, throwaway local DBs.
+- Some tests where you want **zero** migration files.
 
-| Scenario | Prefer |
-|----------|--------|
-| Learning / spike | `EnsureCreated` *maybe* |
-| Shared dev DB | Migrations |
-| Staging / production | Migrations + automated apply strategy |
-| Integration tests | Migrations or test-specific database strategies (test containers, etc.) |
+**Pain points:**
+
+- Database **already there** with old tables? `EnsureCreated` does **not** mean “alter tables until they match my new properties.” It is closer to **“if I had to create from scratch…”** — and if scratch already happened, it may **do nothing** while your code **moved on**.
+- Teams cannot share a **clear upgrade path** in Git the way migrations can.
+- Production startup is a **risky** place to do schema work unless you **really** know what you are doing (permissions, multiple instances starting at once, partial failures).
 
 ---
 
-## 7.4 Other production considerations (from Learn)
+## Migrations — the story with chapters
 
-The [EF Core overview](https://learn.microsoft.com/en-us/ef/core/) lists O/RM considerations including:
+**Feels like:** **Git commits**, but for **schema**.
 
-- Deep **database** knowledge for performance and debugging.
-- **Integration tests** that mirror production engine/version.
-- **Load testing** for naive query patterns (`Include` explosions, N+1, etc.).
-- **Security** (secrets, SQL injection with raw SQL, least-privilege DB users).
-- **Logging/diagnostics** (query tags, Application Insights).
-- **Migration review** before touching production data.
+- Each migration is a **chapter**: “add column,” “new table,” “rename index,” …
+- New developers / CI / staging / prod run the **same ordered chapters**.
+- You can **review** SQL before it touches real data.
+
+Microsoft’s docs discuss **how** to apply migrations in deployment; the key idea for your mental model is: **treat schema changes like releases**, not like a side effect of `Main()`.
+
+Useful entry points:
+
+- [Migrations overview](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/)
+- [Applying migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/applying)
 
 ---
 
-## Next
+## Simple decision guide
 
-[08-glossary-and-faq.md](./08-glossary-and-faq.md) — condensed Q&A and glossary.
+| You are… | Lean toward |
+|----------|-------------|
+| Learning / weekend experiment | `EnsureCreated` *maybe* |
+| Sharing a DB with teammates | **Migrations** |
+| Staging / production | **Migrations** + a deliberate apply step |
+| Heavy read APIs | also remember `AsNoTracking()` (Part 4–5), indexes in SQL — ORMs do not remove the need to understand the engine |
+
+---
+
+## “Production” in one breath (attitude, not fear)
+
+ORMs hide **boilerplate**, not **physics**. For real systems you still care about:
+
+- indexes and slow queries,
+- realistic integration tests against the **same engine** you deploy,
+- secrets and least-privilege DB users,
+- logs you can actually read when something breaks.
+
+The [EF Core overview](https://learn.microsoft.com/en-us/ef/core/) states that kind of expectation plainly; keep it as **background wisdom**, not as something you must memorize today.
+
+---
+
+## What to read next
+
+[08-glossary-and-faq.md](./08-glossary-and-faq.md) — quick words and “exam style” answers in friendly form.

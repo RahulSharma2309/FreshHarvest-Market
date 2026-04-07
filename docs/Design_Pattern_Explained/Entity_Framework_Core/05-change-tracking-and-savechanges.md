@@ -1,101 +1,90 @@
-# 5 — Change tracking, mutations, and `SaveChanges`
+# Part 5 — Changing data: sticky notes, then `SaveChanges`
 
-This document focuses on what happens **after** entities are loaded: how EF Core **detects changes** and how **`SaveChanges`** turns those into **INSERT/UPDATE/DELETE** statements.
+## Mental model
 
----
+After Part 4, you can **load** objects. Now: **what if you change them?**
 
-## 5.1 The change tracker
+EF keeps a **change tracker** — think **sticky notes on each tracked object** saying:
 
-Each `DbContext` owns a **change tracker** (`ChangeTracker` API):
+- what it is (`Customer` id 7),
+- whether it is **new**, **clean**, **dirty**, or **marked delete**,
+- for updates, what the **original** snapshot looked like.
 
-- It stores **entity entries** for tracked instances.
-- Each entry has:
-  - **State** (`Detached`, `Unchanged`, `Added`, `Modified`, `Deleted`)
-  - **Original values** (snapshot for updates/concurrency)
-  - **Current values**
-
-**Per-request scope** means tracker state is **isolated** per `DbContext` instance.
+**`SaveChanges`** is the button: **“flush every sticky note to the database in a sensible order.”**
 
 ---
 
-## 5.2 Loading as `Unchanged`
+## States you actually care about (beginner set)
 
-When EF materializes an entity from a query (tracking mode):
+| State | Plain English | Typical cause |
+|-------|----------------|---------------|
+| **Added** | “Insert this row.” | `DbSet.Add(...)` |
+| **Unchanged** | “Loaded from DB; I haven’t edited it.” | default after a tracked query |
+| **Modified** | “This row already exists; some columns changed.” | you changed properties on a tracked entity |
+| **Deleted** | “Remove this row.” | `DbSet.Remove(...)` on a tracked entity |
+| **Detached** | “EF is not managing this instance.” | new `new Customer()`, or explicitly detached |
+
+(EF also uses other states in advanced scenarios; the table above is enough to reason about most apps.)
+
+---
+
+## Tiny story: load, edit, save
 
 ```csharp
 var customer = await _context.Customers.FirstAsync(c => c.Id == 1);
-// Entry state: Unchanged (conceptually)
-```
+// Tracker: "Customer 1 is unchanged."
 
-Mutate a property:
-
-```csharp
 customer.FirstName = "Rahul";
+// Tracker: "Customer 1 is modified; here is old vs new for columns."
+
+await _context.SaveChangesAsync();
+// EF issues UPDATE(s), then marks those entities unchanged again if all went well.
 ```
 
-The change tracker **detects** the difference between **original** and **current** values and marks the entity **`Modified`** (for scalar properties).
+**Relate it to Part 4:** tracking only applies if the object was **tracked** when loaded. If you used `AsNoTracking()`, changing properties **does nothing** on save unless you **attach** and manage states yourself.
 
 ---
 
-## 5.3 Insert and delete states
+## What `SaveChanges` tries to do (conceptually)
 
-- **`Add` / `AddAsync`:** new entity → **`Added`** → `SaveChanges` emits **INSERT**.
-- **`Remove`:** tracked entity → **`Deleted`** → **DELETE**.
-
----
-
-## 5.4 `SaveChanges` / `SaveChangesAsync`
-
-When you call:
-
-```csharp
-await _context.SaveChangesAsync(ct);
-```
-
-EF Core:
-
-1. **Builds commands** for all pending changes (inserts/updates/deletes).
-2. Orders them respecting **relationships** and **dependencies** (e.g. parent before child, or provider rules).
-3. Typically wraps them in a **transaction** (implicit transaction if you did not start one explicitly).
-4. Opens a connection (or uses an existing ambient transaction/connection), executes commands, accepts results (e.g. store-generated keys).
-5. Updates **tracker state** back to **`Unchanged`** for persisted entities.
+1. Look at **all** pending entries.
+2. Build **INSERT / UPDATE / DELETE** commands.
+3. Order them so **dependencies** make sense (parents/children rules).
+4. Run them inside a **transaction** by default (so you do not half-finish a story).
+5. Refresh tracker state for things that succeeded (for example, store-generated ids).
 
 ---
 
-## 5.5 Connections and transactions
+## Transactions in one paragraph
 
-- **Implicit transaction:** a single `SaveChanges` call → one transaction by default.
-- **Explicit transaction:** you can begin a transaction on `Database.BeginTransaction()` and enlist multiple `SaveChanges` calls or raw SQL—useful when you need atomicity across EF and hand-written SQL.
-
----
-
-## 5.6 Concurrency tokens
-
-If you configure **row version / concurrency token** properties, EF can generate **`UPDATE ... WHERE`** clauses that fail when the row changed—throwing **`DbUpdateConcurrencyException`**. Architecturally: optimistic concurrency control at the database level.
+**Default:** one `SaveChanges` → one transaction.  
+**Custom:** you can start `Database.BeginTransaction()` when you need **multiple** rounds (EF + raw SQL, multiple saves, …) to succeed **together** or **not at all**.
 
 ---
 
-## 5.7 No-tracking queries
+## Concurrency (super short)
 
-```csharp
-var rows = await _context.Customers.AsNoTracking().ToListAsync();
-```
-
-- Faster for read-heavy paths; less memory.
-- Mutations to returned objects are **not** persisted unless you **`Attach`** and mark states manually.
+If you configure a **concurrency token** (row version, etc.), EF can generate updates that mean: **“change this row only if it still looks like when I read it.”** If someone else changed it first, you can get **`DbUpdateConcurrencyException`** — that is optimistic locking doing its job.
 
 ---
 
-## 5.8 Detached graphs and `Update` pitfalls
+## Pitfall: `Update(entity)` on a big object graph
 
-Calling **`Update(entity)`** on a detached graph can mark **many** navigations as modified. For APIs, prefer:
+Calling `Update` on a detached graph can mark **more** than you meant as modified. Safer patterns for APIs:
 
-- Load tracked entity, mutate, `SaveChanges`, or
-- Use DTOs + explicit mapping, or
-- Use patterns like **patch** with careful attachment rules.
+- **Load** tracked entity, **mutate**, **save**, or
+- Use **DTOs** and map explicitly, or
+- Learn attachment rules when you need graphs.
 
 ---
 
-## Next
+## How this connects backward and forward
 
-[06-model-building-fluent-api-and-ddl.md](./06-model-building-fluent-api-and-ddl.md) — how configuration becomes schema.
+- **Backward:** Part 4 explains **when** objects become tracked.
+- **Forward:** Part 6 explains **where** EF learned table/column shapes; Part 7 explains **how** those shapes get created in the server over time.
+
+---
+
+## Official reference (optional)
+
+[Saving data — EF Core docs](https://learn.microsoft.com/en-us/ef/core/saving/)

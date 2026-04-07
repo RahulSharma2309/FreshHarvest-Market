@@ -1,101 +1,101 @@
-# 8 — Glossary and FAQ (architecture Q&A)
+# Part 8 — Cheat sheet: words and quick answers
 
-This page collects **short answers** to the kinds of “exam style” questions that show up when you study EF Core deeply—including the ones from structured notes—while pointing back to the longer documents in this folder.
+Use this when you **know the shape** of an idea but forgot the label, or when you want a **two-minute recap** before coding.
 
-**Baseline reference:** [Overview of Entity Framework Core | Microsoft Learn](https://learn.microsoft.com/en-us/ef/core/)
+For the **story version** of each topic, follow the links to Parts 1–7.
 
 ---
 
-## Glossary
+## Glossary (friendlier than a textbook)
 
-| Term | Meaning |
-|------|---------|
-| **Model** | Metadata describing entity types, tables/columns, keys, relationships, indexes, seeds—what EF uses to generate SQL. |
-| **`DbContext`** | Session + unit of work; query root via `DbSet<T>`; orchestrates tracking and `SaveChanges`. |
-| **`DbSet<T>`** | Query/update endpoint for `T`; implements `IQueryable<T>`. |
-| **`DbContextOptions<T>`** | Immutable configuration (provider, connection string, etc.). |
-| **Expression tree** | Data structure representing code as data; enables LINQ-to-SQL translation. |
-| **`IQueryable`** | Deferred LINQ surface bound to a **query provider** (EF Core). |
-| **Materialization** | Building CLR objects from a `DbDataReader` row stream. |
-| **Change tracker** | Tracks states/original/current values for persisted updates. |
-| **Connection pool** | ADO.NET pool of reusable DB connections (per connection string key). |
-| **Migration** | Versioned schema evolution script generated from model diffs. |
-| **`EnsureCreated`** | Create database+tables from model if missing; not an evolution tool. |
+| Word | Think of it as… |
+|------|------------------|
+| **Model** | EF’s **blueprint**: classes ↔ tables, properties ↔ columns, relationships. |
+| **`DbContext`** | One **workspace** for a short job (often one HTTP request): query, track, save. |
+| **`DbSet<T>`** | The **named door** to query/update `T` rows through this context. |
+| **`DbContextOptions`** | The **sealed settings envelope**: provider + connection string + extras. |
+| **`IQueryable`** | LINQ that stays a **description** until you execute (good for SQL translation). |
+| **Expression tree** | The **structured recipe** of a query EF can read and translate. |
+| **Materialize** | Turn **result rows** into **C# objects**. |
+| **Change tracker** | **Sticky notes** on tracked entities: new / clean / dirty / delete-me. |
+| **Connection pool** | **Shared taxis** for DB connections — borrow, use, return. |
+| **Migration** | A **chapter** of schema history you can replay on each environment. |
+| **`EnsureCreated`** | **If missing, build from today’s blueprint** — not a full evolution story. |
 
 ---
 
 ## FAQ
 
-### Q1. How does EF Core turn LINQ into SQL?
+### How does LINQ become SQL?
 
-**A.** LINQ against `IQueryable` is captured as an **expression tree**, not compiled immediately to in-memory delegates. When you execute the query, EF Core runs it through an internal **query translation pipeline** that produces **provider-specific SQL** and parameters. Execution goes through **ADO.NET** (`DbCommand`, `DbDataReader`). Results are **materialized** into objects, optionally **tracked**.  
+You chain LINQ on `IQueryable`. That builds an **expression tree** — a recipe EF can inspect. When you execute (`ToListAsync`, …), EF **compiles** that recipe into **provider-specific SQL**, runs it through **ADO.NET**, then **materializes** results (and may **track** them).
 
-**Details:** [04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md)
-
----
-
-### Q2. What is the “query pipeline” in EF Core?
-
-**A.** Informally: the **end-to-end compiler** from **LINQ expression** → **relational command representation** → **SQL text + parameters** → **execution** → **materialization** (and optional tracking). Exact internals evolve between versions; the **stages** above are the stable mental model.
+**Longer story:** [Part 4](./04-query-execution-from-linq-to-results.md)
 
 ---
 
-### Q3. Does `DbContext` hold an open connection for its whole lifetime?
+### What is the “query pipeline” people mention?
 
-**A.** **Generally no.** It acquires a connection **when needed** for a command and releases it afterward, relying on **connection pooling**. You may hold connections longer if you start an **explicit transaction** or use APIs that require an ambient connection.
-
-**Details:** [03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md), [04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md)
+An informal name for the **whole assembly line**: recipe → relational plan → SQL + parameters → execute → objects. Exact internals change between versions; the **stages** are what you keep.
 
 ---
 
-### Q4. Why one `DbContext` per HTTP request?
+### Does `DbContext` hold a connection open the whole time?
 
-**A.** `DbContext` is **not thread-safe** and is designed as a **unit of work** for a **single logical transaction scope**. A web request maps naturally to that scope: create → handle → dispose. Isolates **change trackers** and avoids cross-request corruption.
+Usually **no**. It borrows a connection **around** commands and returns it to the **pool**. Longer holds happen if **you** open a transaction or use APIs that need a sustained connection.
 
-**Details:** [03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md)
-
----
-
-### Q5. Why do we use `CreateScope()` at startup?
-
-**A.** Outside an HTTP request there is **no request scope**. To resolve a **scoped** `DbContext`, you create a **manual scope** so disposal and lifetimes are correct.
-
-**Details:** [02-startup-build-and-database-initialization.md](./02-startup-build-and-database-initialization.md)
+**More:** [Part 3](./03-aspnet-core-di-and-request-lifecycle.md), [Part 4](./04-query-execution-from-linq-to-results.md)
 
 ---
 
-### Q6. What does `CanConnectAsync` do?
+### Why one `DbContext` per HTTP request?
 
-**A.** A lightweight **connectivity probe** to validate configuration/reachability/authentication—often the **first real I/O**. It does **not** validate that every table matches your model.
+`DbContext` is **not thread-safe**, and its tracker is **memory with opinions**. A fresh context per request matches **parallel traffic** and **stateless HTTP** — no bleed-over between users.
 
-**Details:** [02-startup-build-and-database-initialization.md](./02-startup-build-and-database-initialization.md)
-
----
-
-### Q7. What does `EnsureCreated` do?
-
-**A.** If the database does not exist, create it and create tables (and possibly seed data) from the **current model**. If the database exists, it **does not migrate** schema forward. For evolution, use **migrations**.
-
-**Details:** [02-startup-build-and-database-initialization.md](./02-startup-build-and-database-initialization.md), [07-migrations-vs-ensurecreated-production-guidance.md](./07-migrations-vs-ensurecreated-production-guidance.md)
+**More:** [Part 3](./03-aspnet-core-di-and-request-lifecycle.md)
 
 ---
 
-### Q8. What happens on first `SaveChanges` after modifying a tracked entity?
+### Why `CreateScope()` at startup?
 
-**A.** EF generates **`UPDATE`** statements for entities in the **`Modified`** state (with concurrency tokens if configured), executes them in a transaction, and resets states to **`Unchanged`** on success.
+Scoped services need a **scope**. A request **creates** one automatically. Startup **does not**, so you **make** a scope to resolve `DbContext` safely and **dispose** it.
 
-**Details:** [05-change-tracking-and-savechanges.md](./05-change-tracking-and-savechanges.md)
-
----
-
-### Q9. How does Fluent API relate to SQL DDL?
-
-**A.** Fluent API configures the **conceptual relational model**. That model is turned into DDL either by **`EnsureCreated`** (direct create) or by **migrations** (scripted diffs)—different machinery, same source of truth: the **EF model**.
-
-**Details:** [06-model-building-fluent-api-and-ddl.md](./06-model-building-fluent-api-and-ddl.md)
+**More:** [Part 2](./02-startup-build-and-database-initialization.md)
 
 ---
 
-## Index
+### What does `CanConnectAsync` tell me?
 
-Back to series index: [README.md](./README.md)
+**“Can we talk to the server with this config?”** — not “are all my tables correct.”
+
+**More:** [Part 2](./02-startup-build-and-database-initialization.md)
+
+---
+
+### What does `EnsureCreated` do?
+
+**If the database is missing**, create it (and tables) from the **current** model. **If it already exists**, it is **not** your ongoing schema migration tool.
+
+**More:** [Part 2](./02-startup-build-and-database-initialization.md), [Part 7](./07-migrations-vs-ensurecreated-production-guidance.md)
+
+---
+
+### I changed a property; why didn’t `SaveChanges` update the database?
+
+Common causes: entity was **`AsNoTracking()`**, never **attached**, or you saved a **different** context instance than the one that tracked the object.
+
+**More:** [Part 5](./05-change-tracking-and-savechanges.md)
+
+---
+
+### How does Fluent API relate to real SQL tables?
+
+Fluent (and conventions/annotations) **build the model**. **`EnsureCreated`** or **migrations** then turn that model into **DDL** — different tools, **same blueprint**.
+
+**More:** [Part 6](./06-model-building-fluent-api-and-ddl.md)
+
+---
+
+## Back to the series
+
+[Index — README.md](./README.md)

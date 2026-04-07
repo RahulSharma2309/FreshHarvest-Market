@@ -1,144 +1,123 @@
-# 2 — Application build, host startup, and database initialization
+# Part 2 — From “registering services” to “the database exists”: a timeline
 
-This document walks the **timeline** from `WebApplication.CreateBuilder` through `builder.Build()`, then the **optional** early startup block where many samples call `Database.CanConnectAsync()` and `Database.EnsureCreated()`.
+## Why this chapter exists
 
-It mirrors the “phases” from structured study notes: **pipeline exists first**, then **EF does real I/O** when you resolve a context and touch the database.
+Beginners often think: *“I called `AddDbContext`, so EF is connected.”*  
+Not really. **Registration** is “put the recipe in the cookbook.” **Connection** is “actually cook.”
 
----
-
-## 2.1 Phase A — Composition (services registration)
-
-During `Program.cs` top-level statements (or `Startup` in older templates):
-
-- You register services: `AddControllers`, `AddDbContext<T>`, etc.
-- **No** `DbContext` instance exists yet for requests.
-- **No** database connection is opened.
-
-Architecturally: the DI container only stores **factories and descriptors**—recipes for later.
+This page is a **clock** you can replay in your head.
 
 ---
 
-## 2.2 Phase B — `var app = builder.Build()`
+## Moment 1 — You register services (`AddDbContext`, …)
 
-`Build()`:
+**What exists:** names and factories in the DI container.  
+**What does not exist yet:** a live `DbContext` for a request, an open SQL connection.
 
-- Constructs the **host** and the **middleware pipeline** configuration.
-- Still: **no per-request scope**, and typically **no** `DbContext` instance yet.
-
-Think: *infrastructure is assembled; business database session has not started.*
+**Analogy:** you filed the expediter’s job description. You did not hire them for today’s shift yet.
 
 ---
 
-## 2.3 Phase C — Why startup often uses `CreateScope()` manually
+## Moment 2 — `var app = builder.Build()`
 
-In ASP.NET Core, **`DbContext` is usually registered as scoped**—one logical lifetime per **HTTP request**.
+**What exists:** the host, middleware pipeline wiring, “the app can run.”  
+**What still does not exist:** per-request scope, random `DbContext` instances floating around.
 
-At **application startup**, you are **outside** an HTTP request, so there is **no implicit scope**. If you need to run EF Core **before** the server accepts traffic (migrations, ensure database exists, seeding), you **open a scope on purpose**:
+**Analogy:** the restaurant **built the dining room**. No customer is seated yet.
+
+---
+
+## Moment 3 — Startup: “I need a `DbContext` but there is no HTTP request”
+
+In a web app, `DbContext` is usually **scoped** = **one per logical scope**.  
+During a normal request, ASP.NET Core **creates that scope for you**.
+
+At **startup**, there is **no request**, so **you** create a scope:
 
 ```csharp
 using (var scope = app.Services.CreateScope())
 {
-    var services = scope.ServiceProvider;
-    var context = services.GetRequiredService<OrderDbContext>();
-    // ... use context ...
+    var context = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+    // use context...
 }
 ```
 
-Why `using`:
+**Why `using` matters:** when the scope ends, scoped services are **disposed**. Your context cleans up (tracker, internal state, any active connection for that context).
 
-- A scope owns **disposable** services resolved from it.
-- When the scope is disposed, scoped services (including `DbContext`) are **disposed** deterministically.
+**What happens when `GetRequiredService` runs?**
 
-**Critical point:** after `GetRequiredService<OrderDbContext>()`:
-
-- The `DbContext` **constructor** runs with `DbContextOptions<T>` wired from DI.
-- **Still** there may be **no** open connection—options are ready; connection is **lazy**.
+- DI **constructs** `OrderDbContext` and passes **`DbContextOptions`**.
+- That is like handing the expediter their **instructions**.
+- **Still:** this alone does not mean SQL Server just felt a permanent connection. Think “person hired,” not “phone glued to ear.”
 
 ---
 
-## 2.4 First-time model building (inside the context)
+## Moment 4 — First time EF needs “the map” (model build)
 
-Before EF can generate SQL, it needs a **model**—a complete description of entities, tables, keys, FKs, indexes, etc.
+The **first** operation that needs the full picture (query, `EnsureCreated`, etc.) triggers **model building**:
 
-**First use** of a context for a given configuration triggers **model building**:
+1. Find entity types (often starting from your `DbSet` properties).
+2. Apply **conventions** + your **`OnModelCreating`** rules.
+3. Turn that into a consistent **relational picture** (tables, keys, FKs, …).
+4. **Validate** (broken relationships, conflicts).
+5. **Cache** the result so the next thousand queries do not redo the heavy work.
 
-1. **Discover entity types** (from `DbSet` properties and referenced types).
-2. Run **`OnModelCreating`** to apply **Fluent API** and merge **conventions**.
-3. Apply **value conversions**, **relationships**, **keys**, **required/optional**, etc.
-4. **Validate** the model (e.g. relationship consistency).
-5. **Cache** the compiled model in memory for subsequent requests (you do not pay full build cost every time).
-
-This is expensive relative to a simple field access—which is why EF caches it.
+**Relate it:** this is EF **memorizing the blueprint** after reading your drawings once.
 
 ---
 
-## 2.5 `Database.CanConnectAsync()` — “can I talk to the server?”
-
-Typical call:
+## Moment 5 — `CanConnectAsync()` — “ping, are you there?”
 
 ```csharp
-var canConnect = await context.Database.CanConnectAsync();
+var ok = await context.Database.CanConnectAsync();
 ```
 
-Architecturally:
+**What it is for:** a cheap sanity check—config, network, permissions, “can we talk at all?”  
+**What it is not:** “do all my tables match my C# model?”
 
-- This is often the **first intentional database interaction** for that startup path.
-- The provider opens a connection (or borrows from the **pool**), runs a **minimal probe** (conceptually similar to a trivial query such as `SELECT 1` on SQL Server—exact mechanics are provider-specific), returns `true`/`false`, then closes / returns the connection to the pool.
-
-It answers: **network + auth + database reachability**, not “do all my tables match the model?”
+**Kitchen picture:** you dial the kitchen; someone picks up; you ask a **tiny** question; you hang up. On SQL Server this often boils down to something like opening a connection and running a minimal probe (exact details belong to the provider).
 
 ---
 
-## 2.6 `Database.EnsureCreated()` — what it does (and what it does *not*)
-
-Call:
+## Moment 6 — `EnsureCreated()` — “if the building is missing, build it from today’s blueprint”
 
 ```csharp
 context.Database.EnsureCreated();
 ```
 
-High-level behavior (conceptual):
+**Story version:**
 
-1. **Check if the database exists** (provider-specific catalog query).
-2. If **missing**, **create the database**.
-3. **Create tables** (and other objects) from the **current model**—not from migration history.
-4. Optionally apply **`HasData`** seed data if configured in the model.
-5. If the database **already exists**, **EnsureCreated** does **not** reconcile schema changes—it effectively **does nothing** for evolution.
+1. Is there a database with the right name? If **no**, create it.
+2. Do we need to create tables from the **current** EF model? Roughly: **yes on first creation**.
+3. If you configured seed data (`HasData`), that can be part of the first-time picture.
 
-### Why this matters architecturally
+**The catch that trips people:** if the database **already exists**, `EnsureCreated` is **not** your friend for **changing** the schema later. It does not mean “make my old DB match my new classes.” It is closer to **“if empty lot, build; if building already there, assume we’re done.”**
 
-- **`EnsureCreated`** is **not** a migrations replacement. It is a **bootstrap** helper for quick prototypes or tests.
-- Microsoft’s Learn documentation and guidance consistently push **EF Core Migrations** for evolving schemas in real projects. The overview links to [Migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/) and related topics.
-
-**Document 7** contrasts **`EnsureCreated`** vs **migrations** and production rollout.
+For **evolving** a real shared database, teams use **migrations** (Part 7).
 
 ---
 
-## 2.7 Phase D — `app.Run()` and accepting requests
+## Moment 7 — `app.Run()` — customers arrive
 
-After startup hooks complete:
+Now the server accepts HTTP traffic. **Each** request will get its **own** scope and usually its **own** `DbContext` (Part 3).
 
-- Kestrel (or your server) **listens** for HTTP requests.
-- For each request, ASP.NET Core creates a **new DI scope** (for scoped services).
-- A **new** `DbContext` instance is created for that scope (when registered with scoped lifetime).
-
-Database schema (if you used `EnsureCreated` or applied migrations earlier) is expected to be **ready** before you rely on it under load.
+By the time heavy traffic hits, you typically want: **schema ready**, **data strategy clear** (`EnsureCreated` for toys, migrations for grown-up apps).
 
 ---
 
-## Mental timeline (summary)
+## One table to remember
 
-| Moment | DbContext instance? | Connection open? |
-|--------|---------------------|-------------------|
+| When | Do I have a `DbContext` instance? | Is SQL necessarily busy the whole time? |
+|------|-----------------------------------|----------------------------------------|
 | After `AddDbContext` | No | No |
 | After `Build()` | No | No |
-| After `CreateScope` + `GetRequiredService` | Yes | Not necessarily |
-| After `CanConnectAsync` | Yes | Briefly for probe |
-| After `EnsureCreated` (first time) | Yes | During DDL |
-| Per HTTP request (scoped) | New instance | Lazy per operation |
+| After `CreateScope` + `GetRequiredService` | Yes | No — only when a command runs |
+| During `CanConnectAsync` | Yes | Briefly |
+| During first `EnsureCreated` on empty DB | Yes | During DDL work |
+| During a normal API request | Yes, **new one per request** | Only around commands |
 
 ---
 
-## Next
+## What to read next
 
-Continue to [03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md) for the **per-request** story.
+[03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md) — the same context idea, but **per HTTP request**.

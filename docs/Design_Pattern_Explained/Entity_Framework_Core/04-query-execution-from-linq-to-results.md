@@ -1,23 +1,26 @@
-# 4 — Query execution: from LINQ composition to SQL, connection, and materialization
+# Part 4 — From LINQ on the screen to rows in memory: the journey
 
-This document explains **what happens when** you write a LINQ query against a `DbSet<T>`—the path from **`IQueryable`** and **expression trees** to **provider SQL**, **ADO.NET execution**, and **C# objects** back in memory.
+## What feels confusing at first
 
-It aligns with the conceptual “querying” section of the [EF Core overview](https://learn.microsoft.com/en-us/ef/core/) while going deeper into **timing** and **components**.
+You write C#. The database speaks SQL. Somewhere in the middle, something has to **understand your C# well enough** to write **correct SQL**.
 
----
-
-## 4.1 `IQueryable<T>` vs `IEnumerable<T>` (why it matters)
-
-- **`IEnumerable<T>`** LINQ (with `Func<>` delegates) runs **in memory** when you enumerate—**not** what you want for database-backed queries.
-- **`IQueryable<T>`** LINQ uses **expression trees** (`Expression<Func<>>`) so EF can **inspect** the query and translate it.
-
-`DbSet<T>` implements **`IQueryable<T>`**—that is the extension point for the EF **query provider**.
+That “something” is EF’s query side. This page is the **storyboard** of one query.
 
 ---
 
-## 4.2 Step 1 — Query composition (deferred execution)
+## Two kinds of LINQ (why `IQueryable` matters)
 
-Example:
+**`IEnumerable` + normal delegates**  
+Think: **LINQ to Objects**. Filters run in **your process** on **things already in RAM**.
+
+**`IQueryable` + expression trees**  
+Think: **LINQ as a description**. EF can **read** the description and **translate** it to SQL.
+
+`DbSet<T>` is `IQueryable`. That is the hook.
+
+---
+
+## Scene 1 — Composing: you are writing a recipe, not eating
 
 ```csharp
 var query = _context.Customers
@@ -25,106 +28,95 @@ var query = _context.Customers
     .Where(c => c.Id == id);
 ```
 
-Until you call a **terminal** operator (`ToListAsync`, `FirstOrDefaultAsync`, `CountAsync`, …), EF is mostly **building a description** of work:
+Until you call something that **forces execution** (`ToListAsync`, `FirstOrDefaultAsync`, `CountAsync`, …), you are mostly stacking **intent**:
 
-- Each LINQ operator adds to an **`IQueryable`** whose **Expression** property is an **expression tree**.
-- Think of it as a **recipe**: “start from Customers DbSet, include Orders, filter by Id.”
+- Start from **Customers**
+- **Also bring** related **Orders** (eager load)
+- **Filter** to one id
 
-**No SQL yet** (in the typical deferred path). **No round trip** to the database.
+**No trip to SQL yet** in the usual deferred path.  
+**Analogy:** you are writing the **order ticket**; the kitchen has not started cooking.
 
 ---
 
-## 4.3 Step 2 — Translation: expression tree → database command
-
-When you execute:
+## Scene 2 — Execution: “go run this now”
 
 ```csharp
 var customer = await query.FirstOrDefaultAsync(ct);
 ```
 
-EF Core’s **query pipeline** (internally: compiler, query translation, SQL generation—version details evolve) does roughly:
+Now EF must produce **real work**:
 
-1. **Normalize** the expression tree (includes, filters, ordering, projections).
-2. **Translate** to a **relational** representation (conceptually: “what tables/joins/filters/projections?”).
-3. Generate **provider-specific SQL** (SQL Server dialect, PostgreSQL dialect, etc.).
-4. Optionally use or build a **cached query plan** for equivalent query shapes (performance optimization; details are internal and version-dependent).
+1. **Look at the whole expression tree** (the stacked intent).
+2. **Turn it into a relational plan** — which tables, joins, filters, projections.
+3. **Generate SQL** your provider understands (SQL Server dialect vs PostgreSQL dialect, etc.).
+4. **Add parameters** so values are not clumsily pasted into the string (good for safety and caching).
 
-**Result:** a command text + parameters bound through ADO.NET APIs (`DbCommand`).
-
-This is the “**LINQ becomes SQL**” moment.
+**This is the “LINQ becomes SQL” moment** people draw in notebooks.
 
 ---
 
-## 4.4 Step 3 — Connection acquisition (pooling)
+## Scene 3 — Borrowing a line to the database (pooling)
 
-EF asks the ADO.NET provider for a **`DbConnection`**:
+EF asks the ADO.NET layer for a connection. Usually that means: **grab a free connection from the pool** for this connection string.
 
-- Usually the connection is **taken from the connection pool** (for connection-string pools in the process).
-- The physical TCP connection may already exist from earlier requests—**pooling** amortizes cost.
-
-**Note:** pooling is fundamentally an **ADO.NET / driver** concern; EF sits above it.
+**Analogy:** a **shared taxi stand**. You do not manufacture a new car per trip; you take the next available cab and return it when done.
 
 ---
 
-## 4.5 Step 4 — Command execution
+## Scene 4 — Execute and stream results
 
-EF opens the connection if needed, executes the **`DbCommand`**, and reads a **`DbDataReader`** (forward-only, streaming).
+EF runs the command and reads through a **forward-only reader** (think: **read rows one by one from a firehose**, not load a giant array blindly without control).
 
-Depending on settings:
-
-- **Single query** vs **split queries** for multiple includes (avoids Cartesian explosion in some cases).
-- **Tracking** vs **no-tracking** changes what happens after materialization.
+Details like **single query vs split queries** for heavy `Include` trees affect **how many** round trips and **how wide** each result set is—worth tuning when performance matters.
 
 ---
 
-## 4.6 Step 5 — Materialization (rows → objects)
+## Scene 5 — Materialization: rows become objects
 
-The EF **materializer** maps:
+EF builds **real C# instances**:
 
-- Result columns → **CLR properties**
-- Related result shapes → **navigation properties** (for includes/joins)
+- Column values → properties  
+- Related rows → navigation properties (when you used `Include` / joins)
 
-You receive a graph of objects (e.g. `Customer` with `Orders` populated) or `null` if no row matched.
-
----
-
-## 4.7 Step 6 — Change tracking (default)
-
-For **tracked** queries, EF’s **change tracker** attaches entities:
-
-- New entities from the database typically start in **`Unchanged`** state (they match the store as far as EF knows).
-- If you mutate properties on a tracked entity, the tracker can mark them **`Modified`** (EF Core term; some notes say “Changed”).
-
-**`AsNoTracking()`** skips this attachment—ideal for read-only endpoints and reduces memory.
+You get either an object graph or `null` if nothing matched.
 
 ---
 
-## 4.8 Step 7 — Connection return
+## Scene 6 — Tracking (default): “I’m watching this instance”
 
-After the reader completes:
+If you did **not** say `AsNoTracking()`, EF **attaches** loaded entities to the **change tracker**:
 
-- EF **closes** the connection (logical close) → returns to the **pool**.
-- The **`DbContext`** may still be alive for the rest of the HTTP request, but it is **not** holding an open connection for that whole time (unless you explicitly begin a transaction or use behaviors that keep it open).
+- They start life as **unchanged** relative to the database (as far as EF knows).
+- If you change properties later, EF can notice and mark them **modified** for `SaveChanges` (Part 5).
 
----
-
-## 4.9 Async operators
-
-`FirstOrDefaultAsync`, `ToListAsync`, etc.:
-
-- Use **async ADO.NET** (`ExecuteReaderAsync`) under the hood.
-- Free threads during I/O—important for scalability in ASP.NET Core.
+**Read-only APIs** often use `AsNoTracking()` to say: **“don’t keep sticky notes on these objects.”**
 
 ---
 
-## 4.10 “Compiled query” and caching (conceptual)
+## Scene 7 — Give the connection back
 
-EF Core can reuse work across executions when query shapes repeat. The exact caching layers are internal, but the **mental model** from study notes is right:
-
-- **Expression tree** → **compiled plan** (conceptually) → **SQL** → execute → materialize.
+After the reader is done, EF **closes** the logical connection → it **returns to the pool**.  
+Your `DbContext` may still exist for the rest of the request, but it is **not** assumed to hold an open pipe the entire time.
 
 ---
 
-## Next
+## String it together as a mantra
 
-[05-change-tracking-and-savechanges.md](./05-change-tracking-and-savechanges.md) — mutations, states, `SaveChanges`, transactions.
+**Compose → (later) translate → connect → execute → materialize → (maybe) track → release connection.**
+
+---
+
+## How this connects to other parts
+
+| Part | Link |
+|------|------|
+| Where does `DbContext` come from? | Part 3 |
+| What happens when I edit and save? | Part 5 |
+| Where does table/column knowledge come from? | Part 6 |
+
+---
+
+## Official deep dives (optional)
+
+[Querying data — EF Core docs](https://learn.microsoft.com/en-us/ef/core/querying/) (for edge cases and APIs)

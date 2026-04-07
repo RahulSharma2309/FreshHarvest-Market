@@ -1,17 +1,30 @@
-# 6 — Model building: conventions, Fluent API, and how configuration becomes DDL
+# Part 6 — Turning your C# intentions into “what the database should look like”
 
-This document explains **`OnModelCreating`**, how EF Core builds its **internal model**, and how that model relates to **CREATE TABLE**-style DDL—conceptually the same bridge your notes drew from Fluent configuration to SQL.
+## The bridge you are learning
+
+You write **classes** and sometimes **Fluent** configuration.  
+The database has **tables**, **columns**, **keys**, **foreign keys**.
+
+EF’s job is to keep a **single clear picture** in the middle: **the model**.
+
+- **Queries** use the model to generate **SELECT** shapes.
+- **`SaveChanges`** uses it to generate **INSERT/UPDATE/DELETE** shapes.
+- **`EnsureCreated` / migrations** use it to talk **DDL** (create/alter objects).
+
+**Same blueprint, different tools** depending on what you are doing.
 
 ---
 
-## 6.1 Where configuration lives
+## Three ways you influence the blueprint
 
-EF discovers:
+1. **Do nothing fancy — conventions**  
+   EF guesses: `Id` might be a key, `CustomerId` on `Order` might be a foreign key, etc. Good for prototypes; not always what you want forever.
 
-- **Entity types** via `DbSet<T>` properties and references from those types.
-- **Conventions** (defaults for keys, FKs, table names, etc.).
-- **Data annotations** on properties (optional).
-- **`OnModelCreating(ModelBuilder modelBuilder)`** for **Fluent API** overrides.
+2. **Attributes on properties** (data annotations)  
+   Quick labels: required, max length, …
+
+3. **`OnModelCreating` + Fluent API**  
+   Your **explicit** overrides: exact keys, delete behaviors, table names, precision, relationships that are hard to guess.
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -28,57 +41,61 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 }
 ```
 
----
+**How to read that without memorizing jargon:**
 
-## 6.2 First-time model build (cached afterward)
-
-When the first query or `EnsureCreated` / migration build needs the model:
-
-1. **Scan** entity types and `DbSet` roots.
-2. **Apply conventions** (naming, keys, relationship inference).
-3. **Invoke `OnModelCreating`**—Fluent calls **mutate** the `ModelBuilder`’s internal metadata.
-4. **Finalize** mappings: CLR types ↔ column types, nullability, lengths, precision, indexes, etc.
-5. **Validate** (conflicting relationships, missing FKs, etc.).
-6. **Cache** the compiled model for the lifetime of the app domain (for that options configuration).
+- **HasKey** — “this column is the **main name tag** for a row.”
+- **HasMaxLength(30)** — “this text column is **not endless**.”
+- **HasMany / WithOne / HasForeignKey** — “many orders **belong to** one customer; the **foreign key column** lives on the order side.”
+- **OnDelete Cascade** — “if the parent goes away, **what happens to children**?”
 
 ---
 
-## 6.3 From Fluent API to SQL shape (conceptual)
+## From Fluent lines to SQL-ish shapes (not letter-perfect, but the idea)
 
-Your notes illustrated:
+Your brain can map:
 
-- `HasKey` → primary key constraint.
-- `HasMaxLength(30)` → `NVARCHAR(30)` (SQL Server example).
-- `HasMany` / `WithOne` / `HasForeignKey` → **foreign key column** + **relationship** in the relational model.
-- `OnDelete(Cascade)` → `ON DELETE CASCADE` on the FK.
+| Fluent idea | Database idea |
+|-------------|----------------|
+| Primary key | `PRIMARY KEY` constraint |
+| Required string with max length | `NVARCHAR(30) NOT NULL` (SQL Server-ish) |
+| Foreign key + relationship | `FOREIGN KEY ... REFERENCES ...` |
+| Cascade delete | `ON DELETE CASCADE` |
 
-EF Core does **not** always emit SQL identical to handwritten DDL for every edge case, but the **relational model** it builds is what both **`EnsureCreated`** and **migrations** consume—through different pipelines:
-
-- **`EnsureCreated`**: “make the database look like this model now” (no history).
-- **Migrations**: “evolve from snapshot A to snapshot B with upgrade/downgrade scripts.”
-
----
-
-## 6.4 Relationships: navigation properties vs shadow FKs
-
-EF can use:
-
-- **Explicit FK property** on the dependent (`CustomerId`).
-- **Shadow properties** (no CLR property) when inferred—less obvious in debugging.
-
-Fluent API can **rename** columns, **split** tables, map to views, configure **owned types**, **table-per-hierarchy**, etc.—all still part of the same **model** abstraction.
+EF’s generated SQL will not always match **exactly** what you would type by hand in every edge case, but **the relational picture** is what matters: **what tables exist, how they point at each other**.
 
 ---
 
-## 6.5 Seeds: `HasData`
+## First build, then cache
 
-`HasData` attaches **seed rows** to the model. How they are applied:
+The first time EF needs the full model, it:
 
-- **`EnsureCreated`**: may insert seed data when creating schema.
-- **Migrations**: generates **InsertData** operations in migration `Up()` methods.
+1. **Collects** entities.
+2. **Applies** conventions + your Fluent rules.
+3. **Checks** for nonsense (broken relationships, conflicts).
+4. **Caches** the result.
+
+So the expensive “figure out the blueprint” work is **not** repeated on every single query.
 
 ---
 
-## Next
+## Seeds (`HasData`)
 
-[07-migrations-vs-ensurecreated-production-guidance.md](./07-migrations-vs-ensurecreated-production-guidance.md) — choosing a strategy for real deployments.
+**Plain idea:** “When this blueprint is applied, also **insert these starter rows**.”
+
+- With **`EnsureCreated`**, seeds may appear when the schema is first created.
+- With **migrations**, seeds become **script steps** you can review in source control.
+
+---
+
+## How this connects to Part 7
+
+- **`EnsureCreated`** says: **“Make reality match today’s blueprint if the database is missing.”** It does not **evolve** an old database when you change classes.
+- **Migrations** say: **“Here is the **history** of blueprint changes; upgrade step by step.”**
+
+Same **source of truth** (the model). **Different life cycle strategy.**
+
+---
+
+## Optional official reading
+
+[Creating a model — EF Core docs](https://learn.microsoft.com/en-us/ef/core/modeling/)

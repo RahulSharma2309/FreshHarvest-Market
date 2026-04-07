@@ -1,41 +1,56 @@
-# Entity Framework Core — Deep Architecture Series
+# Entity Framework Core — learn it as a story, not a manual
 
-This folder contains a **segmented, architecture-level** guide to Entity Framework Core (EF Core): what the major components are, **when** each phase runs, and **how** they connect to ASP.NET Core, ADO.NET, and your database provider.
+This folder is for **building a mental model**: who does what, **in what order**, and **why** that design exists. It is **not** a replacement for the official docs—use [Microsoft’s EF Core overview](https://learn.microsoft.com/en-us/ef/core/) when you need API details—but the goal here is **easy language** and **connections between ideas**.
 
-## Official baseline
+## The one diagram to keep in your head
 
-Start with Microsoft’s conceptual overview for terminology and recommended practices:
+Think of your app talking to SQL in three layers:
 
-- [Overview of Entity Framework Core | Microsoft Learn](https://learn.microsoft.com/en-us/ef/core/)
+```mermaid
+flowchart LR
+  subgraph app [You write]
+    C[Classes and LINQ]
+  end
+  subgraph ef [EF Core]
+    M[Model / blueprint]
+    CT[Change tracker]
+    Q[Query translator]
+  end
+  subgraph db [Database]
+    SQL[Tables and rows]
+  end
+  C --> M
+  C --> Q
+  Q --> SQL
+  CT --> SQL
+```
 
-That page frames EF Core as an O/RM built around a **model** (entity types + `DbContext`), **LINQ querying**, **saving data**, and (for evolving schemas) **migrations**—all of which this series unpacks in more depth.
+- **Your C# classes** are the world you want to work in.
+- **The model** is EF’s internal “map” from those classes to tables and columns.
+- **LINQ** is a *wish list* until you run something like `ToListAsync`; then EF turns that wish list into **real SQL**.
+- **The change tracker** remembers what you loaded or added so **`SaveChanges`** knows what to write back.
 
-## How this series is organized
+Everything else in this series is **zooming in** on that picture.
 
-| # | Document | What you will understand |
-|---|----------|-------------------------|
-| 1 | [01-overview-the-model-and-dbcontext.md](./01-overview-the-model-and-dbcontext.md) | `DbContext`, `DbSet<T>`, `DbContextOptions`, the bridge to the database, responsibilities at a glance |
-| 2 | [02-startup-build-and-database-initialization.md](./02-startup-build-and-database-initialization.md) | `WebApplicationBuilder` → `Build()`, host startup, manual scopes, `CanConnectAsync`, `EnsureCreated`, first model build |
-| 3 | [03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md) | Scoped `DbContext`, one context per HTTP request, constructor injection, disposal |
-| 4 | [04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md) | `IQueryable`, expression trees, translation to SQL, connection pooling, materialization |
-| 5 | [05-change-tracking-and-savechanges.md](./05-change-tracking-and-savechanges.md) | Change tracker states, modifications, `SaveChanges`, connections “late open / early close” |
-| 6 | [06-model-building-fluent-api-and-ddl.md](./06-model-building-fluent-api-and-ddl.md) | `OnModelCreating`, Fluent API → conceptual relational model → DDL shape |
-| 7 | [07-migrations-vs-ensurecreated-production-guidance.md](./07-migrations-vs-ensurecreated-production-guidance.md) | `EnsureCreated` vs migrations, team workflows, production cautions (aligned with Learn) |
-| 8 | [08-glossary-and-faq.md](./08-glossary-and-faq.md) | Short Q&A (e.g. “how does LINQ become SQL?”), key takeaways |
+## How to read this series
 
-## Study notes (optional figures)
+| Order | File | In plain words |
+|------:|------|----------------|
+| 1 | [01-overview-the-model-and-dbcontext.md](./01-overview-the-model-and-dbcontext.md) | What is `DbContext`? What is `DbSet`? Why options in the constructor? |
+| 2 | [02-startup-build-and-database-initialization.md](./02-startup-build-and-database-initialization.md) | From `Program.cs` to first DB touch: scopes, `CanConnect`, `EnsureCreated` |
+| 3 | [03-aspnet-core-di-and-request-lifecycle.md](./03-aspnet-core-di-and-request-lifecycle.md) | Why **one new context per HTTP request** |
+| 4 | [04-query-execution-from-linq-to-results.md](./04-query-execution-from-linq-to-results.md) | From `.Where(...)` to rows in memory |
+| 5 | [05-change-tracking-and-savechanges.md](./05-change-tracking-and-savechanges.md) | Editing objects and pressing “commit” |
+| 6 | [06-model-building-fluent-api-and-ddl.md](./06-model-building-fluent-api-and-ddl.md) | How C# configuration becomes table shapes |
+| 7 | [07-migrations-vs-ensurecreated-production-guidance.md](./07-migrations-vs-ensurecreated-production-guidance.md) | “Create once” vs “evolve over time” |
+| 8 | [08-glossary-and-faq.md](./08-glossary-and-faq.md) | Quick definitions and short answers |
 
-If you keep scanned notebook pages or diagrams, you can drop them under:
+**Suggested path:** read 1 → 3 → 4 → 5 first if you mainly care about web APIs; add 2 and 6 when you care about startup and schema; finish with 7 and 8.
 
-- `images/` (see [images/README.md](./images/README.md))
+## Optional images
 
-and link them from these docs for your own study copy.
+Notebook scans or diagrams can live under [images/](./images/) and you can link them from these files for your own notes.
 
-## Scope
+## Versions
 
-- Concepts apply across recent EF Core versions; your solution may target **.NET 8 / 9 / 10** with a matching EF Core major—always match package versions to your runtime.
-- Provider details (SQL Server, PostgreSQL, etc.) differ slightly in generated SQL and type mapping; the **pipeline** is the same.
-
----
-
-**Suggested reading order:** 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8.
+Ideas here apply across recent EF Core versions; match your **NuGet EF Core packages** to your **.NET** version in real projects.

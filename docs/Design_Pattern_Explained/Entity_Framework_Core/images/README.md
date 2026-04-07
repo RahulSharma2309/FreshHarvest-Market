@@ -1,6 +1,6 @@
 # Images (optional)
 
-Place any **diagrams or scanned study notes** here, for example:
+Drop **your own** diagrams or scanned notes here if you like—the markdown series stands alone without them. Example filenames:
 
 - `notebook-request-lifecycle.png`
 - `notebook-ensurecreated.png`
